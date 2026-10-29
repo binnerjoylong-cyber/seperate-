@@ -1,45 +1,63 @@
-import json
 import re
+import json
 from pyrogram import Client, filters
 from pyrogram.types import Message
+from pyrogram.enums import MessageEntityType
 
-# Aapke credentials
-API_ID = 26950458
-API_HASH = "d818b8d530e4a9b209509815ab1b9c7c"
+API_ID = 39727110
+API_HASH = "cb8629e4ee38ddd7a62d53f4e4555e7d"
+STRING_SESSION = ""
 
-# Isme bot token nahi, apna Telegram account login hoga
-app = Client("my_account", api_id=API_ID, api_hash=API_HASH)
+app = Client(
+    "user_extractor",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    session_string=STRING_SESSION
+)
 
 @app.on_message(filters.me & filters.command("link", prefixes="."))
-async def extract_link_user(client: Client, message: Message):
-    # Reply kiye huye message ko target karein
+async def get_hidden_link(client: Client, message: Message):
     target = message.reply_to_message
     if not target:
-        await message.edit_text("❌ Kisi bhi preview waale message ko **reply** karke `.link` likho.")
+        await message.edit_text("❌ Dir reply 3la el message li fih el preview w kteb `.link`")
         return
 
     extracted_links = set()
 
-    # 1. Web Page Preview URL
+    # 1. Tjbed web_page preview link direct
     if target.web_page:
         if target.web_page.url:
             extracted_links.add(target.web_page.url)
         if target.web_page.display_url:
             extracted_links.add(target.web_page.display_url)
 
-    # 2. Raw JSON string me se deep regex search
-    raw_json = str(target)
-    found_urls = re.findall(r'(https?://[^\s",]+|t\.me/(?:\+|joinchat/)?[a-zA-Z0-9_\-]+)', raw_json)
-    for u in found_urls:
-        extracted_links.add(u.replace('\\/', '/'))
+    # 2. Text links w entities
+    entities = (target.entities or []) + (target.caption_entities or [])
+    raw_text = target.text or target.caption or ""
+    for ent in entities:
+        if ent.type == MessageEntityType.TEXT_LINK and ent.url:
+            extracted_links.add(ent.url)
+        elif ent.type == MessageEntityType.URL:
+            extracted_links.add(raw_text[ent.offset : ent.offset + ent.length])
 
-    # Result show karega
+    # 3. Deep regex search f raw data
+    raw_dump = str(target)
+    found_urls = re.findall(r'(https?://[^\s",]+|t\.me/(?:\+|joinchat/)?[a-zA-Z0-9_\-]+)', raw_dump)
+    for u in found_urls:
+        clean_url = u.replace('\\/', '/')
+        extracted_links.add(clean_url)
+
+    # Natija
     if extracted_links:
-        res = "✅ **Extracted Group / Hidden Link:**\n\n"
+        res = "✅ **Extracted Hidden Links:**\n\n"
         for l in extracted_links:
             res += f"🔗 `{l}`\n"
         await message.edit_text(res)
     else:
-        await message.edit_text("❌ Koi web_page preview link nahi mila.")
+        # Ila malqash link, ykhtar dump file bach tchouf raw data
+        await message.edit_text("⚠️ Malqash link f preview. Ha raw JSON:")
+        with open("raw_message.json", "w", encoding="utf-8") as f:
+            f.write(raw_dump)
+        await client.send_document(message.chat.id, "raw_message.json")
 
 app.run()
